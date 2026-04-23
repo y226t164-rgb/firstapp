@@ -1,1 +1,719 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sunken Hourglass Prototype</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --ui-color: #d4a373;
+            --text-color: #faedcd;
+            --bar-bg: #4a3b32;
+            --bar-fill: #e07a5f;
+            --canvas-bg: #2b2b2b;
+        }
 
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Press Start 2P', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-wrapper {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            background-color: #000;
+            /* 21:9 レターボックス風の黒帯を強調 */
+            padding: 20px 0; 
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+        }
+
+        #ui-top {
+            display: none; /* 時間制限廃止により非表示 */
+        }
+
+        #time-text {
+            font-size: 12px;
+            margin-bottom: 5px;
+            color: var(--ui-color);
+            letter-spacing: 2px;
+        }
+
+        #time-bar-bg {
+            width: 80%;
+            height: 10px;
+            background-color: var(--bar-bg);
+            border: 2px solid var(--ui-color);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        #time-bar {
+            width: 100%;
+            height: 100%;
+            background-color: var(--bar-fill);
+            transition: width 0.1s linear;
+        }
+
+        #canvas-container {
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }
+
+        canvas {
+            background-color: var(--canvas-bg);
+            image-rendering: pixelated; /* ドット絵をくっきり表示 */
+            width: 100%;
+            max-width: 640px;
+            height: auto;
+            aspect-ratio: 20 / 9;
+        }
+
+        /* 映画風のスキャンライン（走査線）エフェクト */
+        #scanline {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 4px, 3px 100%;
+            pointer-events: none;
+            z-index: 10;
+            opacity: 0.5;
+        }
+
+        #ui-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            background: linear-gradient(to top, #1a1a1a, transparent);
+        }
+
+        #items {
+            display: flex;
+            gap: 10px;
+        }
+
+        .item-slot {
+            width: 40px;
+            height: 40px;
+            border: 2px solid var(--ui-color);
+            border-radius: 5px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0,0,0,0.5);
+            font-size: 20px;
+        }
+
+        #message-box {
+            flex-grow: 1;
+            margin-left: 20px;
+            font-size: 10px;
+            line-height: 1.5;
+            text-align: right;
+            color: #ddd;
+        }
+
+        /* スタート画面・オーバーレイ */
+        #overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+            cursor: pointer;
+            transition: opacity 0.5s;
+        }
+
+        #overlay h1 {
+            font-size: 20px;
+            color: var(--ui-color);
+            margin-bottom: 20px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        #overlay p {
+            font-size: 12px;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        #loop-counter {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 10px;
+            color: var(--ui-color);
+            z-index: 5;
+        }
+
+        #level-counter {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 10px;
+            color: var(--ui-color);
+            z-index: 5;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <div id="overlay" onclick="startGame()">
+        <h1>SUNKEN HOURGLASS<br><span style="font-size:12px; color:#aaa;">- Prototype -</span></h1>
+        <p>CLICK TO START</p>
+        <div style="margin-top:30px; font-size:8px; color:#888; text-align:center; line-height:1.8;">
+            [WASD] or [Arrow Keys] to Move<br>
+            メダリオン(M)を取り、扉(D)を開け、<br>宝(G)へ向かえ。罠は見えない。<br>
+            <span style="color:#e63946;">時間制限はないが、無数の死が待ち受ける。</span>
+        </div>
+    </div>
+
+    <div id="ui-top">
+        <div id="time-text">TIME UNTIL COLLAPSE</div>
+        <div id="time-bar-bg"><div id="time-bar"></div></div>
+    </div>
+    
+    <div id="canvas-container">
+        <div id="level-counter">LEVEL: 1</div>
+        <div id="loop-counter">LOOP: 1</div>
+        <canvas id="gameCanvas" width="640" height="288"></canvas>
+        <div id="scanline"></div>
+    </div>
+
+    <div id="ui-bottom">
+        <div id="items">
+            <div class="item-slot" id="slot-medallion"></div>
+        </div>
+        <div id="message-box">遺跡の奥へ進み、脱出せよ...</div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const messageBox = document.getElementById('message-box');
+    const overlay = document.getElementById('overlay');
+    const slotMedallion = document.getElementById('slot-medallion');
+    const loopCounterText = document.getElementById('loop-counter');
+
+    // --- ゲーム設定 ---
+    const TILE_SIZE = 32;
+    const COLS = 20;
+    const ROWS = 9;
+    
+    // 全てのステージに「確実に通れる正解ルート」を確保しつつ罠を配置
+    const levels = [
+        // LEVEL 1: 最初の迷路
+        [
+            "WWWWWWWWWWWWWWWWWWWW",
+            "WST..T......MW.T...W",
+            "W.WWWWWW.WWW.WWWWW.W",
+            "W........WT..T...W.W",
+            "WWWWWWWW.WWW.WWW.W.W",
+            "W........T....D....W",
+            "WWWWWWWWWWWWWWWWW.WW",
+            "W...T.....T....T..GW",
+            "WWWWWWWWWWWWWWWWWWWW"
+        ],
+        // LEVEL 2: 大幅修正版（行き止まり解消）
+        [
+            "WWWWWWWWWWWWWWWWWWWW",
+            "WS..W.M.......T....W",
+            "W.W.W.WWWWW.W.WWWW.W",
+            "W.W.W...T...W....T.W",
+            "W.W.WWWWW.W.WWWWWW.W",
+            "W.W.......W......D.W",
+            "W.WWWWWWWWW.WWWWWW.W",
+            "W...T.....T.......GW",
+            "WWWWWWWWWWWWWWWWWWWW"
+        ],
+        // LEVEL 3: 最終迷宮（長距離の迂回が必要）
+        [
+            "WWWWWWWWWWWWWWWWWWWW",
+            "WS..W.......T....T.W",
+            "W.W.W.WWWWW.WWWWWW.W",
+            "W.W.......W......D.W",
+            "W.WWWWW.W.W.WWWWWW.W",
+            "W.......W.W......T.W",
+            "W.WWWWW.W.WWWWWWWW.W",
+            "WM..T.....T.......GW",
+            "WWWWWWWWWWWWWWWWWWWW"
+        ]
+    ];
+
+    let grid = [];
+    let player = { x: 1, y: 1 };
+    let startPos = { x: 1, y: 1 };
+    let hasMedallion = false;
+    let knownTraps = []; 
+    let loopCount = 1;
+    let currentLevel = 0;
+    let gameState = 'title'; 
+    let lastTime = 0;
+
+    // 音響エフェクト（Web Audio API）
+    let audioCtx;
+    let bgmOsc;
+    let bgmGain;
+    let melodyTimer;
+
+    function initAudio() {
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    // 謎めいたBGMの再生
+    function startBGM() {
+        if (!audioCtx) return;
+        stopBGM(); // 重複再生防止
+
+        // 低く響く不気味な持続音（ドローン）
+        bgmOsc = audioCtx.createOscillator();
+        bgmGain = audioCtx.createGain();
+        bgmOsc.type = 'triangle';
+        bgmOsc.frequency.value = 55; // 低音 A1
+        bgmGain.gain.value = 0.05;
+        
+        bgmOsc.connect(bgmGain);
+        bgmGain.connect(audioCtx.destination);
+        bgmOsc.start();
+
+        scheduleMelody();
+    }
+
+    function stopBGM() {
+        if (bgmOsc) {
+            bgmOsc.stop();
+            bgmOsc.disconnect();
+            bgmOsc = null;
+        }
+        clearTimeout(melodyTimer);
+    }
+
+    function scheduleMelody() {
+        if (gameState !== 'playing') return;
+        
+        // マイナーペンタトニックスケールの不規則なメロディ
+        const freqs = [220, 261.63, 293.66, 329.63, 392.00, 440];
+        let freq = freqs[Math.floor(Math.random() * freqs.length)];
+        
+        playNote(freq, 1.5, 'sine', 0.03);
+        
+        // 頻度を1.2倍マシにアップ（約0.8〜2.5秒間隔に短縮）
+        let nextTime = Math.random() * 2500 + 800; 
+        melodyTimer = setTimeout(scheduleMelody, nextTime);
+    }
+
+    function playNote(freq, duration, type, vol) {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        
+        gain.gain.setValueAtTime(0, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(vol, audioCtx.currentTime + duration * 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+    }
+
+    function playDeathSound() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.5);
+        gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.5);
+    }
+
+    function playSuccessSound() {
+        if (!audioCtx) return;
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(600, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(800, audioCtx.currentTime + 0.1);
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.5);
+    }
+
+    // --- ゲームロジック ---
+
+    function buildMap() {
+        grid = [];
+        let currentMap = levels[currentLevel];
+        for (let y = 0; y < ROWS; y++) {
+            let row = [];
+            for (let x = 0; x < COLS; x++) {
+                let cell = currentMap[y][x];
+                if (cell === 'S') { startPos = {x, y}; row.push('.'); }
+                else { row.push(cell); }
+            }
+            grid.push(row);
+        }
+    }
+
+    function startGame() {
+        if (gameState === 'title') {
+            initAudio();
+            currentLevel = 0;
+            loopCount = 1;
+            knownTraps = [];
+            overlay.style.opacity = 0;
+            setTimeout(() => { overlay.style.display = 'none'; }, 500);
+            buildMap();
+            resetLoop();
+            startBGM(); // BGM開始
+            document.getElementById('level-counter').innerText = `LEVEL: ${currentLevel + 1}`;
+            requestAnimationFrame(gameLoop);
+        }
+    }
+
+    function resetLoop() {
+        player = { x: startPos.x, y: startPos.y };
+        hasMedallion = false;
+        gameState = 'playing';
+        slotMedallion.innerHTML = '';
+        buildMap(); // マップのアイテム等を復活させる
+        updateMessage("時が巻き戻った。死の記憶を頼りに進め。");
+        loopCounterText.innerText = `LOOP: ${loopCount}`;
+    }
+
+    function triggerLoop(reasonMsg) {
+        if (gameState !== 'playing') return;
+        gameState = 'looping';
+        stopBGM(); // ループ時にBGM停止
+        playDeathSound();
+        updateMessage(reasonMsg);
+        
+        // 画面を赤くフラッシュさせるエフェクト
+        ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        setTimeout(() => {
+            overlay.style.display = 'flex';
+            overlay.style.opacity = 1;
+            overlay.innerHTML = `<h1>LOOP TRIGGERED</h1><p>知識を引き継ぎ、再構築中...</p>`;
+            
+            setTimeout(() => {
+                loopCount++;
+                resetLoop();
+                startBGM(); // BGM再開
+                overlay.style.opacity = 0;
+                setTimeout(() => { overlay.style.display = 'none'; }, 500);
+            }, 1500);
+        }, 500);
+    }
+
+    function gameClear() {
+        currentLevel++;
+        if (currentLevel < levels.length) {
+            // 次のレベルへ
+            gameState = 'clear';
+            stopBGM(); 
+            playSuccessSound();
+            updateMessage(`第 ${currentLevel} 層を突破！さらに深くへ...`);
+            
+            overlay.style.display = 'flex';
+            overlay.style.opacity = 1;
+            overlay.innerHTML = `<h1>STAGE CLEARED</h1><p>知識を引き継ぎ、次の階層へ</p>`;
+            
+            setTimeout(() => {
+                knownTraps = []; // 新しいステージなので罠の記憶をリセット
+                resetLoop();
+                startBGM();
+                overlay.style.opacity = 0;
+                setTimeout(() => { overlay.style.display = 'none'; }, 500);
+                document.getElementById('level-counter').innerText = `LEVEL: ${currentLevel + 1}`;
+            }, 2000);
+        } else {
+            // 全ステージ完全クリア
+            gameState = 'clear';
+            stopBGM(); 
+            playSuccessSound();
+            updateMessage("完全脱出成功！すべての秘宝を手に入れた！");
+            overlay.style.display = 'flex';
+            overlay.style.opacity = 1;
+            overlay.innerHTML = `<h1>ALL MISSIONS ACCOMPLISHED</h1><p>総ループ回数: ${loopCount}回</p><p style="cursor:pointer; margin-top:20px; font-size:10px;" onclick="location.reload()">[RESTART]</p>`;
+        }
+    }
+
+    function updateMessage(msg) {
+        messageBox.innerText = msg;
+    }
+
+    // --- 入力処理 ---
+    window.addEventListener('keydown', (e) => {
+        if (gameState !== 'playing') return;
+
+        let dx = 0; let dy = 0;
+        if (e.key === 'ArrowUp' || e.key === 'w') dy = -1;
+        if (e.key === 'ArrowDown' || e.key === 's') dy = 1;
+        if (e.key === 'ArrowLeft' || e.key === 'a') dx = -1;
+        if (e.key === 'ArrowRight' || e.key === 'd') dx = 1;
+
+        if (dx !== 0 || dy !== 0) {
+            movePlayer(dx, dy);
+        }
+    });
+
+    function movePlayer(dx, dy) {
+        let nx = player.x + dx;
+        let ny = player.y + dy;
+
+        if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) return;
+
+        let targetCell = grid[ny][nx];
+
+        if (targetCell === 'W') return; // 壁
+
+        if (targetCell === 'D') {
+            if (hasMedallion) {
+                updateMessage("メダリオンが輝き、扉が開いた！");
+                grid[ny][nx] = '.'; // 扉を開ける
+                playSuccessSound();
+            } else {
+                updateMessage("扉は固く閉ざされている。鍵が必要だ。");
+                return;
+            }
+        }
+
+        // 移動成立
+        player.x = nx;
+        player.y = ny;
+
+        // アイテム・ギミック判定
+        if (targetCell === 'M') {
+            hasMedallion = true;
+            grid[ny][nx] = '.';
+            slotMedallion.innerHTML = '🌞'; // メダリオンの代わりのアイコン
+            updateMessage("『太陽のメダリオン』を手に入れた！");
+            playSuccessSound();
+        }
+
+        if (targetCell === 'T') {
+            // 罠を踏んだ！
+            // 記憶にない罠なら追加する
+            let isKnown = knownTraps.some(t => t.x === nx && t.y === ny);
+            if (!isKnown) {
+                knownTraps.push({x: nx, y: ny});
+            }
+            triggerLoop("罠に掛かった！...死の直前、痛みを記憶した。");
+        }
+
+        if (targetCell === 'G') {
+            gameClear();
+        }
+    }
+
+    // --- 描画処理 ---
+
+    function drawMap() {
+        for (let y = 0; y < ROWS; y++) {
+            for (let x = 0; x < COLS; x++) {
+                let cell = grid[y][x];
+                let px = x * TILE_SIZE;
+                let py = y * TILE_SIZE;
+
+                // 床（より細かい石畳風のディテール追加）
+                ctx.fillStyle = "#2a221c"; // 暗い下地
+                ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                
+                // 石のタイルを4つ敷き詰める表現
+                ctx.fillStyle = "#3a2e26";
+                ctx.fillRect(px + 1, py + 1, 14, 14);
+                ctx.fillRect(px + 17, py + 1, 14, 14);
+                ctx.fillRect(px + 1, py + 17, 14, 14);
+                ctx.fillRect(px + 17, py + 17, 14, 14);
+
+                // ランダムなひび割れや汚れ
+                if ((x * 13 + y * 7) % 5 === 0) {
+                    ctx.strokeStyle = "#1a130f";
+                    ctx.beginPath();
+                    ctx.moveTo(px + 5, py + 5);
+                    ctx.lineTo(px + 12, py + 15);
+                    ctx.lineTo(px + 25, py + 20);
+                    ctx.stroke();
+                }
+
+                if (cell === 'W') {
+                    // 石の壁（ハイライトとシャドウを追加して立体的に）
+                    ctx.fillStyle = "#3e3e3e"; // ベース色
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    
+                    // ハイライト（左と上）
+                    ctx.fillStyle = "#5c5c5c";
+                    ctx.fillRect(px, py, TILE_SIZE, 2);
+                    ctx.fillRect(px, py, 2, TILE_SIZE);
+                    
+                    // シャドウ（右と下）
+                    ctx.fillStyle = "#212121";
+                    ctx.fillRect(px, py + TILE_SIZE - 2, TILE_SIZE, 2);
+                    ctx.fillRect(px + TILE_SIZE - 2, py, 2, TILE_SIZE);
+
+                    // レンガの継ぎ目
+                    ctx.fillStyle = "#111";
+                    ctx.fillRect(px, py + 15, TILE_SIZE, 2); // 横線
+                    if ((x + y) % 2 === 0) {
+                        ctx.fillRect(px + 15, py, 2, 16); // 縦線(上)
+                    } else {
+                        ctx.fillRect(px + 15, py + 16, 2, 16); // 縦線(下)
+                    }
+                    
+                    // 苔の表現（より自然に）
+                    if ((x * 3 + y * 11) % 4 === 0) {
+                        ctx.fillStyle = "rgba(74, 93, 35, 0.6)";
+                        ctx.fillRect(px + 4, py + 22, 10, 8);
+                        ctx.fillRect(px + 18, py + 4, 8, 6);
+                    }
+                } else if (cell === 'M') {
+                    // メダリオン（画像のような青い光を帯びたルーン石風）
+                    ctx.fillStyle = "#2b2b2b";
+                    ctx.fillRect(px + 8, py + 8, 16, 16);
+                    ctx.fillStyle = "#4fc3f7"; // 青い光
+                    ctx.font = "12px monospace";
+                    ctx.fillText("⧖", px + 10, py + 20);
+                } else if (cell === 'D') {
+                    // 扉（巨大な石の扉風）
+                    ctx.fillStyle = "#333";
+                    ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+                    ctx.strokeStyle = "#4fc3f7"; // メダリオンと同じ青いライン
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(px + 4, py + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                    ctx.beginPath();
+                    ctx.arc(px + TILE_SIZE/2, py + TILE_SIZE/2, 4, 0, Math.PI*2);
+                    ctx.stroke();
+                } else if (cell === 'G') {
+                    // ゴール（宝）
+                    ctx.fillStyle = "#ffeb3b";
+                    ctx.fillRect(px + 8, py + 8, TILE_SIZE - 16, TILE_SIZE - 16);
+                } else if (cell === 'T') {
+                    // 罠は通常見えないが、記憶(knownTraps)にあれば赤く表示する
+                    let isKnown = knownTraps.some(t => t.x === x && t.y === y);
+                    if (isKnown) {
+                        ctx.fillStyle = "rgba(229, 57, 53, 0.6)"; // 赤い血痕のように
+                        ctx.fillRect(px + 4, py + 4, TILE_SIZE - 8, TILE_SIZE - 8);
+                        
+                        // トゲの描画
+                        ctx.fillStyle = "#ff5252";
+                        ctx.beginPath();
+                        ctx.moveTo(px + TILE_SIZE/2, py + 4);
+                        ctx.lineTo(px + TILE_SIZE - 4, py + TILE_SIZE - 4);
+                        ctx.lineTo(px + 4, py + TILE_SIZE - 4);
+                        ctx.fill();
+                    }
+                }
+            }
+        }
+    }
+
+    function drawPlayer() {
+        let px = player.x * TILE_SIZE;
+        let py = player.y * TILE_SIZE;
+        
+        // 簡易的な人型キャラクターの描画
+        // 頭 (髪:茶色、肌:ペールトーン)
+        ctx.fillStyle = "#5c4033"; 
+        ctx.fillRect(px + 10, py + 4, 12, 10);
+        ctx.fillStyle = "#f5cda6"; 
+        ctx.fillRect(px + 12, py + 8, 8, 8);
+
+        // 胴体 (ベスト風:茶色、シャツ:白)
+        ctx.fillStyle = "#e0e0e0"; 
+        ctx.fillRect(px + 10, py + 16, 12, 10);
+        ctx.fillStyle = "#8b5a2b"; 
+        ctx.fillRect(px + 10, py + 16, 4, 10);
+        ctx.fillRect(px + 18, py + 16, 4, 10);
+
+        // 腕
+        ctx.fillStyle = "#f5cda6";
+        ctx.fillRect(px + 6, py + 16, 4, 8); 
+        ctx.fillRect(px + 22, py + 16, 4, 8); 
+
+        // 脚 (ズボン:暗い茶色)
+        ctx.fillStyle = "#4a3b32";
+        ctx.fillRect(px + 10, py + 26, 4, 6); 
+        ctx.fillRect(px + 18, py + 26, 4, 6); 
+    }
+
+    function applyLighting() {
+        // プレイヤーの周囲だけ明るく、遠くを暗くするシネマティックなライティング
+        let px = player.x * TILE_SIZE + TILE_SIZE / 2;
+        let py = player.y * TILE_SIZE + TILE_SIZE / 2;
+        
+        let gradient = ctx.createRadialGradient(px, py, TILE_SIZE, px, py, TILE_SIZE * 5);
+        gradient.addColorStop(0, 'rgba(0, 0, 0, 0)');
+        gradient.addColorStop(0.5, 'rgba(0, 0, 0, 0.5)');
+        gradient.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
+        
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function update(dt) {
+        if (gameState !== 'playing') return;
+        // 時間制限廃止のためタイマー処理を削除
+    }
+
+    function gameLoop(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        let dt = (timestamp - lastTime) / 1000; // 秒単位のデルタタイム
+        lastTime = timestamp;
+
+        update(dt);
+
+        if (gameState !== 'looping') {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            drawMap();
+            drawPlayer();
+            applyLighting();
+        }
+
+        requestAnimationFrame(gameLoop);
+    }
+</script>
+
+</body>
+</html>
